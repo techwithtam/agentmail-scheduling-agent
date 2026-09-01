@@ -1,5 +1,11 @@
 # Security
 
+## Template status
+
+This template contains no live credentials or identifiers from its source deployment. The example secret file contains variable names with blank values. Names and email addresses are synthetic, and the Cal.com event type IDs are deliberately invalid negative numbers. The deployment check fails until an adopter replaces those placeholders.
+
+GitHub Actions runs the test suite and Gitleaks on every push. Anyone who adds real configuration must repeat the privacy checks before sharing an adapted fork.
+
 ## Credential handling
 
 Never commit provider credentials. Production values belong in Cloudflare encrypted secrets. Local values belong in `.dev.vars`, which is ignored by Git.
@@ -24,9 +30,9 @@ The Worker:
 
 The Worker logs identifiers, state names, bounded error codes, and availability summaries. Review logging for your privacy requirements before production. Do not add full message bodies, credentials, OAuth responses, or full provider payloads.
 
-## Public-repository check
+## Publishing an adapted fork
 
-Before making a fork public, scan current files and all Git history for:
+Your fork may contain private information after you connect it to your providers. Before changing its visibility to public, scan its current files and complete Git history for:
 
 - API keys, OAuth credentials, webhook secrets, and refresh tokens
 - Personal email addresses and names
@@ -36,7 +42,7 @@ Before making a fork public, scan current files and all Git history for:
 - Local absolute paths
 - Test fixtures copied from real conversations
 
-Use a dedicated secret scanner such as Gitleaks in addition to targeted searches.
+Keep the Gitleaks CI step enabled and run a local secret scan before publishing. If a scanner finds a real credential, revoke it first. Removing the value from Git does not invalidate it.
 
 ## Reporting a vulnerability
 

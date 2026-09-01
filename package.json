@@ -1,0 +1,24 @@
+{
+  "name": "agentmail-scheduling-agent",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Agent-readable AgentMail and Cal.com scheduling agent for Cloudflare Workers.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check:config": "node scripts/check-config.mjs",
+    "cf-typegen": "wrangler types",
+    "typecheck": "npm run cf-typegen && tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test",
+    "deploy": "npm run check:config && npm run check && node scripts/deploy.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.128.0"
+  }
+}

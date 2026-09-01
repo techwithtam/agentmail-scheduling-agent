@@ -1,0 +1,63 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "agentmail-scheduling-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-31",
+  "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": [
+      "AGENTMAIL_SIGNING_SECRET",
+      "AGENTMAIL_API_KEY_SCHEDULER",
+      "CAL_COM_TOKEN",
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOOGLE_REFRESH_TOKEN"
+    ]
+  },
+  "ai": {
+    "binding": "AI"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SCHEDULER_THREAD",
+        "class_name": "SchedulerThread"
+      }
+    ]
+  },
+  "exports": {
+    "SchedulerThread": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "SCHEDULER_QUEUE",
+        "queue": "agentmail-scheduling-events"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "agentmail-scheduling-events",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3,
+        "retry_delay": 30,
+        "dead_letter_queue": "agentmail-scheduling-events-dlq"
+      }
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05
+    }
+  }
+}

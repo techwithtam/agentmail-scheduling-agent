@@ -375,7 +375,26 @@ describe("conversational reply composer", () => {
     })).resolves.toContain("- When: Monday, September 7 at 12:00pm PT");
     const prompt = String(aiRun.mock.calls[0][1]?.messages?.[0]?.content);
     expect(prompt).toContain("experienced executive assistant");
+    expect(prompt).toContain("start every bullet with a hyphen and one space");
     expect(prompt).not.toContain("learn more about Alex's services");
+  });
+
+  it("normalizes Markdown proposal markers into spaced plain-text bullets", async () => {
+    const aiRun = vi.fn(async () => ({ response: JSON.stringify({
+      text: "Alex has availability next week on several days. The options are:\n* Monday, September 7: 2:00pm or 3:30pm PT\n* Tuesday, September 8: 3:00pm or 4:30pm PT\n* Wednesday, September 9: 2:30pm or 4:30pm PT\nCould you please let me know which option works best for you?\nCasey",
+    }) }));
+
+    await expect(composeReply({ AI: { run: aiRun } } as unknown as Env, {
+      kind: "proposal",
+      timezone: "PT",
+      durationMinutes: 30,
+      scope: "next week",
+      slots: [
+        "Monday, September 7: 2:00pm or 3:30pm PT",
+        "Tuesday, September 8: 3:00pm or 4:30pm PT",
+        "Wednesday, September 9: 2:30pm or 4:30pm PT",
+      ],
+    })).resolves.toBe("Alex has availability next week on several days. The options are:\n\n- Monday, September 7: 2:00pm or 3:30pm PT\n- Tuesday, September 8: 3:00pm or 4:30pm PT\n- Wednesday, September 9: 2:30pm or 4:30pm PT\n\nCould you please let me know which option works best for you?\n\nCasey");
   });
 
   it("rejects a reply that invents another day or time", async () => {

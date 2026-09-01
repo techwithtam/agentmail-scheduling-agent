@@ -590,8 +590,31 @@ function includesQuestionTopic(text: string, question: string): boolean {
   return topics.length === 0 || topics.some((word) => normalized.includes(word));
 }
 
+function normalizePlainTextLayout(text: string): string {
+  const lines = text.trim().replace(/\r\n?/g, "\n").split("\n").map((line) => {
+    const normalizedMarker = line.replace(/^\s*[*+•-]\s+/, "- ");
+    return normalizedMarker.trimEnd();
+  });
+  const output: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const isBullet = /^-\s+\S/.test(line);
+    const previousIsBullet = index > 0 && /^-\s+\S/.test(lines[index - 1]);
+    const nextIsBullet = index + 1 < lines.length && /^-\s+\S/.test(lines[index + 1]);
+    if (isBullet && !previousIsBullet && output.at(-1) !== "") output.push("");
+    output.push(line);
+    if (isBullet && !nextIsBullet && index + 1 < lines.length && lines[index + 1] !== "") output.push("");
+  }
+  let normalized = output.join("\n").replace(/\n{3,}/g, "\n\n");
+  const signatureSuffix = `\n${AGENT_NAME}`;
+  if (normalized.endsWith(signatureSuffix)) {
+    normalized = `${normalized.slice(0, -signatureSuffix.length).replace(/\n+$/, "")}\n\n${AGENT_NAME}`;
+  }
+  return normalized.trim();
+}
+
 export function validateComposedReply(text: string, brief: ReplyBrief): string {
-  const clean = text.trim();
+  const clean = normalizePlainTextLayout(text);
   if (clean.length < 12 || clean.length > 1600) throw new Error("reply_composer_invalid_length");
   if (/[—]|<\/?[a-z][^>]*>|\b(?:as an ai|certainly|i'?d be happy to|a few times(?:\s+\w+){0,4}\s+could work|pick one|you'?re all set)\b/i.test(clean)) throw new Error("reply_composer_voice_violation");
   if (/\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+is available at\b/i.test(clean)) throw new Error("reply_composer_role_violation");
@@ -600,6 +623,10 @@ export function validateComposedReply(text: string, brief: ReplyBrief): string {
   if (brief.kind === "proposal") {
     if (!brief.slots?.length || !includesFacts(clean, brief.slots) || !containsOnlyFacts(clean, brief.slots)) throw new Error("reply_composer_invalid_slots");
     if (brief.slots.length === 1 && !clean.toLowerCase().includes(OWNER_NAME.toLowerCase())) throw new Error("reply_composer_missing_host");
+    if (brief.slots.length > 1) {
+      const listBlocks = clean.split(/\n{2,}/).filter((block) => block.split("\n").every((line) => /^-\s+\S/.test(line)));
+      if (listBlocks.length !== 1 || listBlocks[0].split("\n").length !== brief.slots.length) throw new Error("reply_composer_proposal_layout");
+    }
   } else if (brief.kind === "clarification") {
     if (!brief.question || (clean.match(/\?/g) ?? []).length !== 1 || !includesFacts(clean, [brief.question]) || !containsOnlyFacts(clean, [brief.question]) || !includesQuestionTopic(clean, brief.question)) throw new Error("reply_composer_invalid_question");
   } else if (brief.kind === "unavailable") {

@@ -48,7 +48,7 @@ The detailed offline diagram is in [`docs/architecture.html`](docs/architecture.
 
 | Dependency | Why it is required | What you provide |
 | --- | --- | --- |
-| Node.js 20+ and npm | Install, test, generate Cloudflare types, and deploy | Local development environment |
+| Node.js 22+ and npm | Install, test, generate Cloudflare types, and deploy | Local development environment |
 | Cloudflare Workers and Wrangler | Hosts the webhook and orchestration code | Authenticated Wrangler session |
 | Cloudflare Queues | Separates webhook receipt from processing and retries failures | Main queue and dead-letter queue |
 | Cloudflare Durable Objects | Stores one durable transaction state per email thread | SQLite-backed `SchedulerThread` binding |

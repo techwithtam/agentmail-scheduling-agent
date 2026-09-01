@@ -13,7 +13,7 @@ Adapt and deploy this AgentMail scheduling agent for the repository owner's stac
 
 ## Dependencies
 
-- Node.js 20 or newer
+- Node.js 22 or newer
 - npm
 - Wrangler 4
 - Cloudflare Workers, Workers AI, Queues, and SQLite-backed Durable Objects

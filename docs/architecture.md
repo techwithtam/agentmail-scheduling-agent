@@ -1,5 +1,7 @@
 # Architecture and transaction boundaries
 
+This implementation was inspired by the [Scheduling Agent in AgentMail's Build gallery](https://www.agentmail.to/build). The architecture below documents this repository's independent Cloudflare, Cal.com, and Google Calendar implementation.
+
 ## Components
 
 | Component | Responsibility | Trust boundary |

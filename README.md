@@ -4,6 +4,8 @@ A production-oriented email scheduling agent built with AgentMail, Cal.com, Goog
 
 Give this repository to GPT Work, Codex, Claude Code, Claude Cowork, or another coding agent. The agent can inspect [`AGENTS.md`](AGENTS.md), adapt the configuration to your accounts, run the test suite, and prepare the deployment. Provider credentials and production deployment still require your approval.
 
+The initial concept was inspired by the [Scheduling Agent in AgentMail's Build gallery](https://www.agentmail.to/build). This repository is an independent implementation. It adds Cal.com as the booking authority, durable Cloudflare orchestration, deterministic safeguards, and cross-provider verification. It is not an official AgentMail template and is not endorsed by AgentMail.
+
 ## Give this repository to a coding agent
 
 Use a prompt like this:

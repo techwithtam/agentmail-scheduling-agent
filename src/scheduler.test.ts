@@ -871,6 +871,81 @@ describe("durable scheduling transaction", () => {
     expect(reply).not.toContain("Alex is available");
   });
 
+  it("inherits the timezone from an active proposal for a newly requested exact time", async () => {
+    const state: ThreadState = {
+      ...emptyState(),
+      phase: "proposed",
+      proposedStarts: ["2026-09-07T21:00:00.000Z", "2026-09-07T22:30:00.000Z"],
+      durationMinutes: 30,
+      title: "Meeting request — Alex + Guest",
+      purpose: "Discuss the meeting request.",
+    };
+    const runtime = deps(plan({
+      action: "propose",
+      duration_minutes: 30,
+      proposed_starts: ["2026-09-07T22:00:00.000Z"],
+      confirmed_start: null,
+    }));
+    runtime.now = vi.fn(() => new Date("2026-09-01T20:12:00.000Z"));
+    runtime.getThread = vi.fn(async () => ({
+      last_message_id: "msg-alternate",
+      subject: "Meeting request",
+      messages: [{
+        message_id: "msg-alternate",
+        timestamp: "2026-09-01T20:11:00.000Z",
+        from: "Guest <guest@example.com>",
+        to: ["owner@example.com", "scheduler@example.agentmail.to"],
+        text: "available monday at 3pm by chance?",
+      }],
+    }));
+
+    await processQueueEvent(env(), state, event({ eventId: "evt-alternate", messageId: "msg-alternate" }), async () => undefined, runtime);
+
+    expect(state.phase).toBe("booked");
+    expect(runtime.freeBusy).toHaveBeenCalledWith(expect.anything(), ["2026-09-07T22:00:00.000Z"], 30);
+    expect(runtime.createAndVerifyBooking).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      start: "2026-09-07T22:00:00.000Z",
+      durationMinutes: 30,
+    }));
+  });
+
+  it("recovers an alternate-time quarantine when a new inbound message retries the exact time", async () => {
+    const state: ThreadState = {
+      ...emptyState(),
+      phase: "quarantined",
+      proposedStarts: ["2026-09-07T21:00:00.000Z", "2026-09-07T22:30:00.000Z"],
+      durationMinutes: 30,
+      title: "Meeting request — Alex + Guest",
+      purpose: "Discuss the meeting request.",
+      lastError: "confirmation_does_not_match_exact_proposal",
+    };
+    const runtime = deps(plan({
+      action: "propose",
+      duration_minutes: 30,
+      proposed_starts: ["2026-09-07T22:00:00.000Z"],
+      confirmed_start: null,
+    }));
+    runtime.now = vi.fn(() => new Date("2026-09-01T20:21:00.000Z"));
+    runtime.getThread = vi.fn(async () => ({
+      last_message_id: "msg-retry",
+      subject: "Meeting request",
+      messages: [{
+        message_id: "msg-retry",
+        timestamp: "2026-09-01T20:20:00.000Z",
+        from: "Guest <guest@example.com>",
+        to: ["owner@example.com", "scheduler@example.agentmail.to"],
+        text: "Can you check Monday at 3pm again?",
+      }],
+    }));
+
+    await processQueueEvent(env(), state, event({ eventId: "evt-retry", messageId: "msg-retry" }), async () => undefined, runtime);
+
+    expect(state.phase).toBe("booked");
+    expect(state.lastError).toBeUndefined();
+    expect(runtime.freeBusy).toHaveBeenCalledWith(expect.anything(), ["2026-09-07T22:00:00.000Z"], 30);
+    expect(runtime.createAndVerifyBooking).toHaveBeenCalledTimes(1);
+  });
+
   it("converts an exact Eastern-time request before applying Pacific working hours", async () => {
     expect(exactRequestedStart("How about Wednesday at 4pm ET?", now)).toBe("2026-09-02T20:00:00.000Z");
     expect(exactRequestedStart("How about Wednesday at 4pm?", now)).toBeNull();

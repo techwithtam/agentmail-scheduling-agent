@@ -707,6 +707,16 @@ function canRecoverPreMutationQuarantine(state: ThreadState): boolean {
     && !state.confirmationReplyMessageId;
 }
 
+function canRecoverAlternativeExactTimeQuarantine(state: ThreadState): boolean {
+  return state.phase === "quarantined"
+    && state.lastError === "confirmation_does_not_match_exact_proposal"
+    && state.proposedStarts.length > 0
+    && Boolean(state.durationMinutes && state.title && state.purpose)
+    && !state.bookingUid
+    && !state.googleEventId
+    && !state.confirmationReplyMessageId;
+}
+
 function canResumePostCreateVerification(state: ThreadState): boolean {
   return state.phase === "quarantined"
     && Boolean(state.lastError?.startsWith("cal_created_google_verification_failed:"))
@@ -731,6 +741,10 @@ export async function processQueueEvent(env: Env, state: ThreadState, event: Que
     state.phase = "idle";
     state.lastError = undefined;
     await checkpoint(state);
+  } else if (canRecoverAlternativeExactTimeQuarantine(state)) {
+    state.phase = "proposed";
+    state.lastError = undefined;
+    await checkpoint(state);
   }
   const resumablePostCreateVerification = canResumePostCreateVerification(state);
   if (["create_started", "booking_created", "google_enriched", "booking_reply_started", "booked"].includes(state.phase)
@@ -750,7 +764,8 @@ export async function processQueueEvent(env: Env, state: ThreadState, event: Que
   const plan = await deps.plan(env, thread, state, relativeDateAnchor);
   if (plan.action === "ignore") { markProcessed(); await checkpoint(state); return state; }
 
-  const directTimezone = explicitTimezone(text) ?? establishedThreadTimezone(thread);
+  const activeProposalTimezone = state.phase === "proposed" && state.proposedStarts.length > 0 ? OWNER_TIMEZONE : null;
+  const directTimezone = explicitTimezone(text) ?? establishedThreadTimezone(thread) ?? activeProposalTimezone;
   const directRequestedStart = ["book", "propose"].includes(plan.action)
     ? exactRequestedStart(text, relativeDateAnchor, directTimezone)
     : null;

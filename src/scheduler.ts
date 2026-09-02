@@ -82,6 +82,7 @@ export interface ReplyBrief {
   question?: string;
   title?: string;
   purpose?: string;
+  meetUrl?: string;
 }
 
 export interface RuntimeDeps {
@@ -456,11 +457,11 @@ function conversationalSlot(startIso: string): string {
   return `${day} at ${time} ${OWNER_TIMEZONE_LABEL}`;
 }
 
-function bookingConfirmationText(input: BookingInput): string {
-  return `Your meeting with ${OWNER_NAME} is confirmed.\n\n- When: ${conversationalSlot(input.start)}\n- Duration: ${input.durationMinutes} minutes\n- Where: Google Meet, included in the Cal.com invitation\n\nYou should have received the invitation in your inbox. You can use it to reschedule or cancel if needed.\n\n${AGENT_NAME}`;
+function bookingConfirmationText(input: BookingInput, meetUrl: string): string {
+  return `You’re confirmed for a ${input.durationMinutes}-minute meeting with ${OWNER_NAME} on ${conversationalSlot(input.start)}.\n\nGoogle Meet: ${meetUrl}\n\nIf anything changes, you can reschedule or cancel from the Cal.com invitation in your inbox.\n\n${AGENT_NAME}`;
 }
 
-function proposalText(starts: string[], requestText: string): string {
+function proposalText(starts: string[], durationMinutes: number, requestText: string): string {
   const lines = proposalLines(starts);
   const dayCount = new Set(starts.map((start) => dateKey(new Date(start)))).size;
   if (dayCount === 1 && starts.length <= 2) {
@@ -470,13 +471,13 @@ function proposalText(starts: string[], requestText: string): string {
     const times = starts.map((start) => timeFormat.format(new Date(start)).replace(" AM", "am").replace(" PM", "pm"));
     const options = times.join(times.length === 2 ? " or " : "");
     const question = times.length === 2 ? "Would either time work for you?" : "Would that time work for you?";
-    return `${OWNER_NAME} has availability on ${day} at ${options} ${OWNER_TIMEZONE_LABEL}. ${question}\n\n${AGENT_NAME}`;
+    return `${OWNER_NAME} has availability for a ${durationMinutes}-minute meeting on ${day} at ${options} ${OWNER_TIMEZONE_LABEL}. ${question}\n\nThank you,\n\n${AGENT_NAME}`;
   }
   const window = /\bearly\s+next\s+week\b/i.test(requestText) ? " early next week"
     : /\bnext\s+week\b/i.test(requestText) ? " next week"
       : /\btomorrow\b/i.test(requestText) ? " tomorrow"
         : "";
-  return `Here are a few options${window}:\n\n${lines}\n\nPlease let me know which option works best, and I’ll send the calendar invitation.\n\n${AGENT_NAME}`;
+  return `${OWNER_NAME} has availability${window} for a ${durationMinutes}-minute meeting on the following days:\n\n${lines}\n\nCould you please let me know which of these options works best for you?\n\nThank you,\n\n${AGENT_NAME}`;
 }
 function clarificationText(text: string): string { return requiredDuration(text) ? "What day or time window would work best for the meeting?" : "How much time should I hold for the meeting?" }
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -560,12 +561,13 @@ function proposalBrief(starts: string[], duration: number, requestText: string):
   };
 }
 
-function confirmationBrief(input: BookingInput): ReplyBrief {
+function confirmationBrief(input: BookingInput, meetUrl: string): ReplyBrief {
   return {
     kind: "confirmation",
     timezone: OWNER_TIMEZONE_LABEL,
     durationMinutes: input.durationMinutes,
     requestedSlot: conversationalSlot(input.start),
+    meetUrl,
   };
 }
 
@@ -581,6 +583,11 @@ function includesFacts(text: string, values: string[]): boolean {
 function containsOnlyFacts(text: string, values: string[]): boolean {
   const allowed = new Set(values.flatMap(factTokens).map((token) => token.toLowerCase()));
   return factTokens(text).every((token) => allowed.has(token.toLowerCase()));
+}
+
+function factOccurrenceCount(text: string, token: string): number {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (text.match(new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?=$|[^A-Za-z0-9])`, "gi")) ?? []).length;
 }
 
 function includesQuestionTopic(text: string, question: string): boolean {
@@ -622,6 +629,9 @@ export function validateComposedReply(text: string, brief: ReplyBrief): string {
   if (brief.kind !== "clarification" && !clean.includes(brief.timezone)) throw new Error("reply_composer_missing_timezone");
   if (brief.kind === "proposal") {
     if (!brief.slots?.length || !includesFacts(clean, brief.slots) || !containsOnlyFacts(clean, brief.slots)) throw new Error("reply_composer_invalid_slots");
+    if (/\b(?:each|every)\s+meeting\b|\bmeetings?\s+will\s+be\b/i.test(clean)) throw new Error("reply_composer_proposal_voice");
+    const durationMentions = clean.match(new RegExp(`\\b${brief.durationMinutes}(?:-minute|\\s+minutes?)\\b`, "gi")) ?? [];
+    if (durationMentions.length !== 1) throw new Error("reply_composer_proposal_duration");
     if (brief.slots.length === 1 && !clean.toLowerCase().includes(OWNER_NAME.toLowerCase())) throw new Error("reply_composer_missing_host");
     if (brief.slots.length > 1) {
       const listBlocks = clean.split(/\n{2,}/).filter((block) => block.split("\n").every((line) => /^-\s+\S/.test(line)));
@@ -635,11 +645,22 @@ export function validateComposedReply(text: string, brief: ReplyBrief): string {
   } else {
     const required = [brief.requestedSlot ?? ""];
     const blocks = clean.split(/\n{2,}/);
-    const detailLines = blocks[1]?.split("\n") ?? [];
-    if (blocks.length !== 4 || blocks[3] !== AGENT_NAME || detailLines.length < 2 || detailLines.length > 4 || detailLines.some((line) => !/^-\s+\S/.test(line))) {
+    const meetUrl = brief.meetUrl ?? "";
+    const opening = blocks[0] ?? "";
+    const meetLine = blocks[1] ?? "";
+    const closing = blocks[2] ?? "";
+    const expectedFacts = factTokens(brief.requestedSlot ?? "").map((token) => token.toLowerCase());
+    const factsAppearOnce = expectedFacts.every((token) => factOccurrenceCount(clean, token) === 1);
+    const durationPattern = new RegExp(`\\b${brief.durationMinutes}-minute\\b`, "i");
+    const oneOpeningSentence = (opening.match(/[.!?](?:\s|$)/g) ?? []).length === 1;
+    const oneClosingSentence = (closing.match(/[.!?](?:\s|$)/g) ?? []).length === 1 && closing.split(/\s+/).length <= 20;
+    if (blocks.length !== 4 || blocks[3] !== AGENT_NAME || !oneOpeningSentence || !oneClosingSentence || blocks.some((block) => block.split("\n").some((line) => /^-\s+\S/.test(line)))) {
       throw new Error("reply_composer_confirmation_layout");
     }
-    if (!includesFacts(clean, required) || !containsOnlyFacts(clean, required) || !clean.includes(String(brief.durationMinutes)) || !/Cal\.com/i.test(clean) || !/Google Meet/i.test(clean) || !/reschedul/i.test(clean) || !/cancel/i.test(clean)) {
+    if (!/^(?:You(?:'|’)re|Your)\b/i.test(opening) || !opening.toLowerCase().includes(`meeting with ${OWNER_NAME.toLowerCase()}`) || !/\bconfirmed\b/i.test(opening) || !durationPattern.test(opening)
+      || !includesFacts(clean, required) || !containsOnlyFacts(clean, required) || !factsAppearOnce
+      || !/^https:\/\/meet\.google\.com\/[a-z0-9-]+$/i.test(meetUrl) || meetLine !== `Google Meet: ${meetUrl}`
+      || !/Cal\.com/i.test(closing) || !/\binbox\b/i.test(closing) || !/reschedul/i.test(closing) || !/cancel/i.test(closing)) {
       throw new Error("reply_composer_missing_confirmation_facts");
     }
   }
@@ -667,6 +688,11 @@ export async function composeReply(env: Env, brief: ReplyBrief): Promise<string>
 async function composedOrFallback(env: Env, deps: RuntimeDeps, brief: ReplyBrief, fallback: string): Promise<string> {
   try { return validateComposedReply(await deps.composeReply(env, brief), brief); }
   catch { return fallback; }
+}
+
+function deterministicConfirmation(input: BookingInput, meetUrl: string): string {
+  const brief = confirmationBrief(input, meetUrl);
+  return validateComposedReply(bookingConfirmationText(input, meetUrl), brief);
 }
 
 function choosePrimary(message: AgentMessage, hostEmail: string): { primary: Address; guests: string[]; expected: string[] } | null {
@@ -830,7 +856,7 @@ export async function processQueueEvent(env: Env, state: ThreadState, event: Que
     try { google = await deps.verifyCalCreatedGoogleEvent(env, booking, input); state.googleEventId = google.eventId; state.phase = "google_enriched"; await checkpoint(state); }
     catch (error) { state.phase = "quarantined"; state.lastError = `cal_created_google_verification_failed: ${errorMessage(error)}`; await checkpoint(state); return state; }
     state.phase = "booking_reply_started"; await checkpoint(state);
-    const confirmation = await composedOrFallback(env, deps, confirmationBrief(input), bookingConfirmationText(input));
+    const confirmation = await composedOrFallback(env, deps, confirmationBrief(input, google.meetUrl), deterministicConfirmation(input, google.meetUrl));
     try { state.confirmationReplyMessageId = await deps.replyAll(env, sourceMessageId, confirmation, participants.expected); state.phase = "booked"; }
     catch (error) { state.phase = "quarantined"; state.lastError = `booking_reply_uncertain: ${errorMessage(error)}`; }
     await checkpoint(state); return state;
@@ -882,7 +908,7 @@ export async function processQueueEvent(env: Env, state: ThreadState, event: Que
     const title = state.title ?? safeTitle(plan, participants.primary, purpose, thread.subject);
     markProcessed(); state.phase = "proposal_reply_started"; state.proposedStarts = available; state.proposalRounds = (state.proposalRounds ?? 0) + 1; state.durationMinutes = duration; state.title = title; state.purpose = purpose; state.sourceMessageId = sourceMessageId; state.expectedRecipients = participants.expected; await checkpoint(state);
     try {
-      const reply = await composedOrFallback(env, deps, proposalBrief(available, duration, text), proposalText(available, text));
+      const reply = await composedOrFallback(env, deps, proposalBrief(available, duration, text), proposalText(available, duration, text));
       state.proposalReplyMessageId = await deps.replyAll(env, sourceMessageId, reply, participants.expected); state.phase = "proposed";
     }
     catch (error) { state.phase = "quarantined"; state.lastError = `proposal_reply_uncertain: ${errorMessage(error)}`; }
@@ -923,7 +949,7 @@ export async function processQueueEvent(env: Env, state: ThreadState, event: Que
     try { google = await deps.verifyCalCreatedGoogleEvent(env, booking, input); state.googleEventId = google.eventId; state.phase = "google_enriched"; await checkpoint(state); }
     catch (error) { state.phase = "quarantined"; state.lastError = `cal_created_google_verification_failed: ${errorMessage(error)}`; await checkpoint(state); return state; }
     state.phase = "booking_reply_started"; await checkpoint(state);
-    const confirmation = await composedOrFallback(env, deps, confirmationBrief(input), bookingConfirmationText(input));
+    const confirmation = await composedOrFallback(env, deps, confirmationBrief(input, google.meetUrl), deterministicConfirmation(input, google.meetUrl));
     try { state.confirmationReplyMessageId = await deps.replyAll(env, sourceMessageId, confirmation, participants.expected); state.phase = "booked"; }
     catch (error) { state.phase = "quarantined"; state.lastError = `booking_reply_uncertain: ${errorMessage(error)}`; }
     await checkpoint(state);

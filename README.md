@@ -24,7 +24,9 @@ The agent should ask for access or values only when it reaches the relevant setu
 - Checks the Cal.com booking and corresponding Google Calendar event before confirming by email.
 - Stops and alerts the owner when a provider result is uncertain.
 
-The model cannot call providers directly. Deterministic code owns availability checks, booking creation, recipient validation, lead time, state transitions, and post-booking verification.
+The model cannot call providers directly. Deterministic code owns availability checks, booking creation, recipient validation, lead time, state transitions, post-booking verification, and reply validation.
+
+Attendee-facing wording is generated from a brief containing only verified facts. Proposals state the meeting duration once and ask which option works best. Confirmations address the recipient directly, show the verified Google Meet URL, and explain the Cal.com reschedule and cancellation path in one short sentence. If generated wording changes a fact or breaks the plain-text layout, the Worker sends a safe deterministic fallback.
 
 ## Architecture
 

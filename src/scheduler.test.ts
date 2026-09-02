@@ -67,10 +67,10 @@ function deps(thePlan: Plan, options: { freeBusyError?: boolean; createError?: b
     now: () => now,
     plan: vi.fn(async () => thePlan),
     composeReply: vi.fn(async (_env, brief) => {
-      if (brief.kind === "proposal") return `Here are a few options:\n\n${(brief.slots ?? []).map((slot) => `- ${slot}`).join("\n")}\n\nPlease let me know which option works best.\n\nCasey`;
+      if (brief.kind === "proposal") return `Alex has availability for a ${brief.durationMinutes}-minute meeting on the following days:\n\n${(brief.slots ?? []).map((slot) => `- ${slot}`).join("\n")}\n\nCould you please let me know which of these options works best for you?\n\nThank you,\n\nCasey`;
       if (brief.kind === "clarification") return `${brief.question}\n\nCasey`;
       if (brief.kind === "unavailable") return `${brief.requestedSlot} is already booked. These are still open: ${(brief.alternatives ?? []).join(" or ")}. Would either work?\n\nCasey`;
-      return `Your meeting with Alex is confirmed.\n\n- When: ${brief.requestedSlot}\n- Duration: ${brief.durationMinutes} minutes\n- Where: Google Meet, included in the Cal.com invitation\n\nYou should have received the invitation in your inbox. You can use it to reschedule or cancel if needed.\n\nCasey`;
+      return `You’re confirmed for a ${brief.durationMinutes}-minute meeting with Alex on ${brief.requestedSlot}.\n\nGoogle Meet: ${brief.meetUrl}\n\nIf anything changes, you can reschedule or cancel from the Cal.com invitation in your inbox.\n\nCasey`;
     }),
     freeBusy: vi.fn(async () => {
       if (options.freeBusyError) throw new Error("calendar access denied");
@@ -365,14 +365,15 @@ describe("AgentMail replies", () => {
 describe("conversational reply composer", () => {
   it("uses the dedicated voice prompt and returns a validated plain-text reply", async () => {
     const aiRun = vi.fn(async () => ({ response: JSON.stringify({
-      text: "Your meeting with Alex is confirmed.\n\n- When: Monday, September 7 at 12:00pm PT\n- Duration: 30 minutes\n- Where: Google Meet, included in the Cal.com invitation\n\nYou should have received the invitation in your inbox. You can use it to reschedule or cancel if needed.\n\nCasey",
+      text: "You’re confirmed for a 30-minute meeting with Alex on Monday, September 7 at 12:00pm PT.\n\nGoogle Meet: https://meet.google.com/abc-defg-hij\n\nIf anything changes, you can reschedule or cancel from the Cal.com invitation in your inbox.\n\nCasey",
     }) }));
     await expect(composeReply({ AI: { run: aiRun } } as unknown as Env, {
       kind: "confirmation",
       timezone: "PT",
       durationMinutes: 30,
       requestedSlot: "Monday, September 7 at 12:00pm PT",
-    })).resolves.toContain("- When: Monday, September 7 at 12:00pm PT");
+      meetUrl: "https://meet.google.com/abc-defg-hij",
+    })).resolves.toBe("You’re confirmed for a 30-minute meeting with Alex on Monday, September 7 at 12:00pm PT.\n\nGoogle Meet: https://meet.google.com/abc-defg-hij\n\nIf anything changes, you can reschedule or cancel from the Cal.com invitation in your inbox.\n\nCasey");
     const prompt = String(aiRun.mock.calls[0][1]?.messages?.[0]?.content);
     expect(prompt).toContain("experienced executive assistant");
     expect(prompt).toContain("start every bullet with a hyphen and one space");
@@ -381,7 +382,7 @@ describe("conversational reply composer", () => {
 
   it("normalizes Markdown proposal markers into spaced plain-text bullets", async () => {
     const aiRun = vi.fn(async () => ({ response: JSON.stringify({
-      text: "Alex has availability next week on several days. The options are:\n* Monday, September 7: 2:00pm or 3:30pm PT\n* Tuesday, September 8: 3:00pm or 4:30pm PT\n* Wednesday, September 9: 2:30pm or 4:30pm PT\nCould you please let me know which option works best for you?\nCasey",
+      text: "Alex has availability next week for a 30-minute meeting on the following days:\n* Monday, September 7: 2:00pm or 3:30pm PT\n* Tuesday, September 8: 3:00pm or 4:30pm PT\n* Wednesday, September 9: 2:30pm or 4:30pm PT\nCould you please let me know which of these options works best for you?\n\nThank you,\n\nCasey",
     }) }));
 
     await expect(composeReply({ AI: { run: aiRun } } as unknown as Env, {
@@ -394,12 +395,27 @@ describe("conversational reply composer", () => {
         "Tuesday, September 8: 3:00pm or 4:30pm PT",
         "Wednesday, September 9: 2:30pm or 4:30pm PT",
       ],
-    })).resolves.toBe("Alex has availability next week on several days. The options are:\n\n- Monday, September 7: 2:00pm or 3:30pm PT\n- Tuesday, September 8: 3:00pm or 4:30pm PT\n- Wednesday, September 9: 2:30pm or 4:30pm PT\n\nCould you please let me know which option works best for you?\n\nCasey");
+    })).resolves.toBe("Alex has availability next week for a 30-minute meeting on the following days:\n\n- Monday, September 7: 2:00pm or 3:30pm PT\n- Tuesday, September 8: 3:00pm or 4:30pm PT\n- Wednesday, September 9: 2:30pm or 4:30pm PT\n\nCould you please let me know which of these options works best for you?\n\nThank you,\n\nCasey");
+  });
+
+  it("rejects proposal copy that describes the options as separate meetings", async () => {
+    const aiRun = vi.fn(async () => ({ response: JSON.stringify({
+      text: "Alex has availability next week, and every meeting will be 30 minutes.\n\n- Monday, September 7: 2:00pm or 3:30pm PT\n- Tuesday, September 8: 3:00pm or 4:30pm PT\n\nWhich option works best?\n\nCasey",
+    }) }));
+    await expect(composeReply({ AI: { run: aiRun } } as unknown as Env, {
+      kind: "proposal",
+      timezone: "PT",
+      durationMinutes: 30,
+      slots: [
+        "Monday, September 7: 2:00pm or 3:30pm PT",
+        "Tuesday, September 8: 3:00pm or 4:30pm PT",
+      ],
+    })).rejects.toThrow("reply_composer_proposal_voice");
   });
 
   it("rejects a reply that invents another day or time", async () => {
     const aiRun = vi.fn(async () => ({ response: JSON.stringify({
-      text: "Your meeting with Alex is confirmed.\n\n- When: Monday, September 7 at 12:00pm PT, with Tuesday at 2:00pm PT also open\n- Duration: 30 minutes\n- Where: Google Meet, included in the Cal.com invitation\n\nYou should have received the invitation in your inbox. You can use it to reschedule or cancel if needed.\n\nCasey",
+      text: "You’re confirmed for a 30-minute meeting with Alex on Monday, September 7 at 12:00pm PT, with Tuesday at 2:00pm PT also open.\n\nGoogle Meet: https://meet.google.com/abc-defg-hij\n\nIf anything changes, you can reschedule or cancel from the Cal.com invitation in your inbox.\n\nCasey",
     }) }));
 
     await expect(composeReply({ AI: { run: aiRun } } as unknown as Env, {
@@ -407,6 +423,7 @@ describe("conversational reply composer", () => {
       timezone: "PT",
       durationMinutes: 30,
       requestedSlot: "Monday, September 7 at 12:00pm PT",
+      meetUrl: "https://meet.google.com/abc-defg-hij",
     })).rejects.toThrow("reply_composer_missing_confirmation_facts");
   });
 
@@ -419,19 +436,21 @@ describe("conversational reply composer", () => {
       timezone: "PT",
       durationMinutes: 30,
       requestedSlot: "Monday, September 7 at 12:00pm PT",
+      meetUrl: "https://meet.google.com/abc-defg-hij",
     })).rejects.toThrow("reply_composer_confirmation_layout");
   });
 
-  it("rejects a confirmation without a scannable detail list", async () => {
+  it("rejects a confirmation without the verified direct Meet link", async () => {
     const aiRun = vi.fn(async () => ({ response: JSON.stringify({
-      text: "Your meeting with Alex is confirmed.\n\nMonday, September 7 at 12:00pm PT for 30 minutes on Google Meet through Cal.com.\n\nYou can use the invitation to reschedule or cancel if needed.\n\nCasey",
+      text: "You’re confirmed for a 30-minute meeting with Alex on Monday, September 7 at 12:00pm PT.\n\nGoogle Meet: included in the Cal.com invitation\n\nIf anything changes, you can reschedule or cancel from the Cal.com invitation in your inbox.\n\nCasey",
     }) }));
     await expect(composeReply({ AI: { run: aiRun } } as unknown as Env, {
       kind: "confirmation",
       timezone: "PT",
       durationMinutes: 30,
       requestedSlot: "Monday, September 7 at 12:00pm PT",
-    })).rejects.toThrow("reply_composer_confirmation_layout");
+      meetUrl: "https://meet.google.com/abc-defg-hij",
+    })).rejects.toThrow("reply_composer_missing_confirmation_facts");
   });
 });
 
@@ -718,9 +737,10 @@ describe("durable scheduling transaction", () => {
 
     expect(state.phase).toBe("proposed");
     const reply = String((runtime.replyAll as ReturnType<typeof vi.fn>).mock.calls[0][2]);
-    expect(reply).toContain("Here are a few options early next week");
+    expect(reply).toContain("Alex has availability early next week for a 60-minute meeting");
     expect(reply).toContain("Monday, September 7");
-    expect(reply).toContain("Please let me know which option works best");
+    expect(reply).toContain("Could you please let me know which of these options works best for you?");
+    expect(reply).toContain("Thank you,\n\nCasey");
     expect(reply).not.toContain("could work");
     expect(reply).not.toContain("pick one");
   });
@@ -751,7 +771,7 @@ describe("durable scheduling transaction", () => {
 
     expect(state.phase).toBe("proposed");
     const reply = String((runtime.replyAll as ReturnType<typeof vi.fn>).mock.calls[0][2]);
-    expect(reply).toBe("Alex has availability on Tuesday at 10:30am or 2:00pm PT. Would either time work for you?\n\nCasey");
+    expect(reply).toBe("Alex has availability for a 30-minute meeting on Tuesday at 10:30am or 2:00pm PT. Would either time work for you?\n\nThank you,\n\nCasey");
     expect(reply).not.toContain("Tuesday is available");
   });
 
@@ -861,11 +881,9 @@ describe("durable scheduling transaction", () => {
       title: "Introductory Call",
     }));
     const reply = String((runtime.replyAll as ReturnType<typeof vi.fn>).mock.calls[0][2]);
-    expect(reply).toContain("Your meeting with Alex is confirmed.");
-    expect(reply).toContain("- When: Monday, September 7 at 12:00pm PT");
-    expect(reply).toContain("- Duration: 30 minutes");
-    expect(reply).toContain("- Where: Google Meet, included in the Cal.com invitation");
-    expect(reply).toContain("You can use it to reschedule or cancel if needed.");
+    expect(reply).toBe("You’re confirmed for a 30-minute meeting with Alex on Monday, September 7 at 12:00pm PT.\n\nGoogle Meet: https://meet.google.com/abc-defg-hij\n\nIf anything changes, you can reschedule or cancel from the Cal.com invitation in your inbox.\n\nCasey");
+    expect(reply.match(/Monday, September 7 at 12:00pm PT/g)).toHaveLength(1);
+    expect(reply).not.toMatch(/^-/m);
     expect(reply).not.toContain("learn more about Alex's services");
     expect(reply).not.toContain("Which one works");
     expect(reply).not.toContain("Alex is available");

@@ -55,6 +55,7 @@ Python is not used by this repository.
 - Never book a time that fails the configured lead time or Cal.com availability check.
 - Never create a second booking when a prior create result is uncertain.
 - Quarantine ambiguous provider outcomes and alert the configured owner.
+- Generate attendee-facing wording only from verified reply briefs. Keep the meeting duration once in proposals, include the verified Google Meet URL in confirmations, and preserve the deterministic reply fallback.
 - Do not log access tokens, refresh tokens, signing secrets, full email bodies, or raw provider responses.
 - Do not remove Google verification merely to make a failing deployment pass. Replace it with an equivalent verification adapter when changing calendar providers.
 

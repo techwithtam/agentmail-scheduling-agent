@@ -10,7 +10,7 @@ This implementation was inspired by the [Scheduling Agent in AgentMail's Build g
 | Worker fetch handler | Validates and normalizes webhooks | Rejects invalid signatures, old timestamps, large bodies, other inboxes, and unsupported events |
 | Cloudflare Queue | Buffers accepted events and retries processing | Dead-letters an event after the configured delivery limit |
 | `SchedulerThread` Durable Object | Serializes one thread and stores checkpoints | One deterministic transaction state per AgentMail thread |
-| Workers AI | Produces structured plans and plain-text wording | No provider tools; output is schema-checked and fact-checked |
+| Workers AI | Produces structured plans and natural plain-text wording from verified briefs | No provider tools; output is schema-checked and fact-checked |
 | Cal.com | Returns slots and creates the booking | Booking authority; availability is rechecked before mutation |
 | Google Calendar | Confirms the event Cal.com created | Read-after-write verification; does not create the booking |
 
@@ -26,7 +26,8 @@ This implementation was inspired by the [Scheduling Agent in AgentMail's Build g
 8. For booking, the Worker checkpoints `create_started`, checks availability again, and asks Cal.com to create one booking.
 9. The Worker reads the booking back from Cal.com and verifies the time, duration, purpose, attendees, metadata, destination calendar, and Google reference.
 10. The Worker reads the Google Calendar event and verifies its identity, content, time, attendees, and Google Meet URL.
-11. Only then does AgentMail send the confirmation in the original thread.
+11. The reply composer receives only the verified booking facts. Deterministic code checks the date, time, timezone, duration, Google Meet URL, layout, and recipient-centered wording; invalid copy falls back to a safe fixed reply.
+12. Only then does AgentMail send the confirmation in the original thread.
 
 An uncertain booking result moves the thread to `quarantined`. The Worker records the known booking UID when available and tells the owner to review the thread before any retry.
 
